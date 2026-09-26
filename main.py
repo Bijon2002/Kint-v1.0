@@ -131,122 +131,58 @@ def resolve_via_doh(hostname: str) -> str:
         return hostname
 
 
-def _create_stealth_ssl_context(server_hostname: str = None) -> ssl.SSLContext:
-    """Creates an SSL context that masks the SNI (Server Name Indication) field.
-    Network monitors use SNI to identify which domain you're connecting to."""
-    ctx = ssl.create_default_context()
-    # We still verify certificates for security, but mask the domain in SNI
-    if MASK_SNI and server_hostname:
-        # Use check_hostname=False so we can set SNI to something innocuous
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_REQUIRED
-    return ctx
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _stealth_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    """Intercepts DNS lookups for AI APIs and resolves them via Cloudflare DoH (Port 443).
+    This prevents plaintext UDP 53 DNS queries from ever reaching the WiFi router
+    while preserving standard TLS SNI hostnames so certificates validate cleanly."""
+    if USE_DOH and host and not host.startswith(("127.", "localhost", "192.168.", "10.")):
+        if "googleapis.com" in host or "groq.com" in host or "openrouter.ai" in host:
+            try:
+                ip = resolve_via_doh(host)
+                if ip and ip != host:
+                    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))]
+            except Exception:
+                pass
+    return _orig_getaddrinfo(host, port, family, type, proto, flags)
+
+
+# Hook standard socket resolution for the entire Python process
+socket.getaddrinfo = _stealth_getaddrinfo
 
 
 def stealth_urlopen(url: str, data: bytes = None, headers: dict = None, timeout: int = 25):
-    """Opens a URL with DoH DNS resolution and SNI masking for stdlib urllib.
-    Used as fallback when requests library is not available."""
+    """Opens a URL using stdlib urllib with socket-level DoH resolution."""
     import urllib.request
-    import urllib.parse
-
-    parsed = urllib.parse.urlparse(url)
-    hostname = parsed.hostname
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-
-    # Resolve via DoH
-    if USE_DOH and hostname and not hostname.startswith(("127.", "localhost")):
-        resolved_ip = resolve_via_doh(hostname)
-        # Rewrite URL to use IP address instead of hostname
-        new_netloc = f"{resolved_ip}:{port}" if port != 443 else resolved_ip
-        url_with_ip = urllib.parse.urlunparse((
-            parsed.scheme, new_netloc, parsed.path,
-            parsed.params, parsed.query, parsed.fragment
-        ))
-    else:
-        url_with_ip = url
-        resolved_ip = hostname
-
     req_headers = headers or {}
-    # Always set Host header so the server knows which vhost we want
-    req_headers["Host"] = hostname
-
-    req = urllib.request.Request(url_with_ip, data=data, headers=req_headers, method="POST" if data else "GET")
-
-    # Create SSL context with masked SNI
-    if parsed.scheme == "https":
-        ssl_ctx = _create_stealth_ssl_context(hostname)
-        return urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx)
-    else:
-        return urllib.request.urlopen(req, timeout=timeout)
-
-
-class StealthHTTPAdapter(HTTPAdapter if HTTPAdapter else object):
-    """Custom requests HTTPAdapter that resolves DNS via DoH and masks SNI.
-    This prevents WiFi routers, firewalls, and network monitors from seeing
-    which AI APIs (Gemini, Groq, OpenRouter) you are connecting to."""
-
-    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
-        """Override send to resolve hostname via DoH before the connection."""
-        import urllib.parse
-
-        parsed = urllib.parse.urlparse(request.url)
-        hostname = parsed.hostname
-
-        # Skip DoH for localhost / local network
-        if hostname and not hostname.startswith(("127.", "localhost", "192.168.", "10.")):
-            if USE_DOH:
-                resolved_ip = resolve_via_doh(hostname)
-                # Rewrite the URL to use the resolved IP
-                port = parsed.port
-                if port:
-                    new_netloc = f"{resolved_ip}:{port}"
-                else:
-                    new_netloc = resolved_ip
-                request.url = urllib.parse.urlunparse((
-                    parsed.scheme, new_netloc, parsed.path,
-                    parsed.params, parsed.query, parsed.fragment
-                ))
-                # Ensure the Host header carries the original hostname
-                request.headers["Host"] = hostname if not port or port in (80, 443) else f"{hostname}:{port}"
-
-        return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
-
-    def init_poolmanager(self, *args, **kwargs):
-        """Override pool manager to mask SNI in TLS connections."""
-        if MASK_SNI:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_REQUIRED
-            kwargs["ssl_context"] = ctx
-        super().init_poolmanager(*args, **kwargs)
+    req = urllib.request.Request(url, data=data, headers=req_headers, method="POST" if data else "GET")
+    return urllib.request.urlopen(req, timeout=timeout)
 
 
 def create_stealth_session() -> "requests.Session":
-    """Creates a requests.Session with DoH DNS resolution, SNI masking, and optional proxy.
-    All outgoing API calls should use this session instead of raw requests.post()."""
+    """Creates a requests.Session with socket-level DoH DNS resolution, Chrome User-Agent, and optional proxy."""
     if not requests:
         return None
 
     session = requests.Session()
 
-    # Mount the stealth adapter for all HTTPS and HTTP traffic
     if HTTPAdapter:
-        stealth_adapter = StealthHTTPAdapter(max_retries=1)
-        session.mount("https://", stealth_adapter)
-        session.mount("http://", stealth_adapter)
+        adapter = HTTPAdapter(max_retries=2)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
 
     # Configure proxy if set (SOCKS5, HTTP, or Cloudflare WARP)
     proxy_url = STEALTH_PROXY.strip() if STEALTH_PROXY else ""
     if not proxy_url:
-        # Auto-detect Cloudflare WARP socks5 proxy
         try:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            test_sock.settimeout(0.3)
+            test_sock.settimeout(0.2)
             result = test_sock.connect_ex(("127.0.0.1", 40000))
             test_sock.close()
             if result == 0:
                 proxy_url = "socks5://127.0.0.1:40000"
-                print("[DConf Net] Cloudflare WARP SOCKS5 proxy detected on port 40000")
         except Exception:
             pass
 
@@ -255,7 +191,6 @@ def create_stealth_session() -> "requests.Session":
             "http": proxy_url,
             "https": proxy_url
         }
-        print(f"[DConf Net] Routing traffic through proxy: {proxy_url}")
 
     # Disguise User-Agent as a normal browser
     session.headers.update({
