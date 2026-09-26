@@ -29,8 +29,9 @@ echo [*] Compiling standalone executable with PyInstaller...
 echo     Target: dist\WinDConf.exe
 echo.
 
-pyinstaller --onefile --noconsole --name WinDConf --clean ^
+pyinstaller --onefile --noconsole --name WinDConf --icon="display.ico" --add-data "display.ico;." --add-data "display.png;." --clean ^
     --hidden-import "PIL" ^
+    --hidden-import "PIL.ImageTk" ^
     --hidden-import "pytesseract" ^
     --hidden-import "keyboard" ^
     --hidden-import "mss" ^

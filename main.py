@@ -22,6 +22,7 @@ try:
 except ImportError:
     Image = None
     ImageGrab = None
+    ImageTk = None
 
 try:
     import pytesseract
@@ -303,6 +304,19 @@ def get_candidate_file_paths(filename: str) -> list:
             seen.add(norm)
             result.append(norm)
     return result
+
+
+def find_resource_file(filename: str) -> str:
+    """Finds a resource file from PyInstaller _MEIPASS, current dir, or candidate paths."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = os.path.join(meipass, filename)
+        if os.path.exists(p):
+            return p
+    for candidate in get_candidate_file_paths(filename):
+        if os.path.exists(candidate):
+            return candidate
+    return ""
 
 
 def load_java_doc_context() -> str:
@@ -598,12 +612,12 @@ class NotificationPill:
         color_map = {
             "success": ("#a6e3a1", "✓"),
             "scanning": ("#89b4fa", "⏳"),
-            "solving": ("#f9e2af", "⚡"),
+            "solving": ("#f9e2af", "⚙"),
             "info": ("#89b4fa", "ℹ"),
             "error": ("#f38ba8", "✕")
         }
 
-        border_color, icon = color_map.get(status_type, ("#89b4fa", "⚡"))
+        border_color, icon = color_map.get(status_type, ("#89b4fa", "⚙"))
 
         self.border_frame.config(bg=border_color)
         self.lbl_icon.config(text=icon, fg=border_color)
@@ -706,6 +720,10 @@ class DisplayConfigApp:
         self.root.attributes("-alpha", self.opacity_level)
         self.root.overrideredirect(True)  # Frameless for modern custom stealth HUD
 
+        # Apply official Windows Display Configuration icon
+        self.header_icon_photo = None
+        self.apply_app_icon()
+
         # Configure Tesseract
         self.setup_tesseract()
 
@@ -739,6 +757,28 @@ class DisplayConfigApp:
         """Thread-safe invocation of the bottom-corner stealth toast alert."""
         if hasattr(self, "toast") and self.toast:
             self.root.after(0, lambda: self.toast.show(title, subtitle, status_type, duration_ms))
+
+    def apply_app_icon(self):
+        """Sets the application icon from display.ico / display.png."""
+        ico_file = find_resource_file("display.ico")
+        if ico_file:
+            try:
+                self.root.iconbitmap(ico_file)
+            except Exception:
+                pass
+
+        png_file = find_resource_file("display.png")
+        if png_file:
+            try:
+                if Image and ImageTk:
+                    img = Image.open(png_file).resize((18, 18), Image.Resampling.LANCZOS)
+                    self.header_icon_photo = ImageTk.PhotoImage(img)
+                    try:
+                        self.root.iconphoto(True, self.header_icon_photo)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     def init_stealth(self):
         """Finds top-level Win32 HWND and sets stealth affinity + hides from taskbar."""
@@ -854,18 +894,58 @@ class DisplayConfigApp:
         self.title_bar.bind("<Button-1>", self.start_drag)
         self.title_bar.bind("<B1-Motion>", self.do_drag)
 
-        # Title / Brand Icon with Active Model Name
+        # Title / Brand Display with Official Windows Display Monitor Icon
+        self.title_left_frame = tk.Frame(self.title_bar, bg=self.header_bg)
+        self.title_left_frame.pack(side="left", fill="y")
+        self.title_left_frame.bind("<Button-1>", self.start_drag)
+        self.title_left_frame.bind("<B1-Motion>", self.do_drag)
+
+        if self.header_icon_photo:
+            self.lbl_logo = tk.Label(
+                self.title_left_frame,
+                image=self.header_icon_photo,
+                bg=self.header_bg,
+                padx=4
+            )
+            self.lbl_logo.pack(side="left", padx=(8, 2))
+            self.lbl_logo.bind("<Button-1>", self.start_drag)
+            self.lbl_logo.bind("<B1-Motion>", self.do_drag)
+        else:
+            self.lbl_logo = tk.Label(
+                self.title_left_frame,
+                text="🖥️",
+                font=("Segoe UI", 10),
+                bg=self.header_bg,
+                fg=self.accent_color,
+                padx=4
+            )
+            self.lbl_logo.pack(side="left", padx=(8, 2))
+            self.lbl_logo.bind("<Button-1>", self.start_drag)
+            self.lbl_logo.bind("<B1-Motion>", self.do_drag)
+
         self.lbl_title = tk.Label(
-            self.title_bar,
-            text=f"⚙ Display Config — {DEFAULT_MODEL}",
+            self.title_left_frame,
+            text="Display Configuration",
             font=("Segoe UI", 9, "bold"),
             bg=self.header_bg,
             fg=self.accent_color,
-            padx=8
+            padx=4
         )
         self.lbl_title.pack(side="left", fill="y")
         self.lbl_title.bind("<Button-1>", self.start_drag)
         self.lbl_title.bind("<B1-Motion>", self.do_drag)
+
+        self.lbl_version = tk.Label(
+            self.title_left_frame,
+            text="• v2.4",
+            font=("Segoe UI", 8),
+            bg=self.header_bg,
+            fg=self.text_dim,
+            padx=2
+        )
+        self.lbl_version.pack(side="left", fill="y")
+        self.lbl_version.bind("<Button-1>", self.start_drag)
+        self.lbl_version.bind("<B1-Motion>", self.do_drag)
 
         # Header Control Buttons (Right aligned)
         self.btn_close = tk.Button(
@@ -1017,10 +1097,10 @@ class DisplayConfigApp:
         )
         self.btn_clear.pack(side="left", padx=4)
 
-        # Hide to Background button (puts into pure stealth mode)
+        # Hide to Background button (puts into pure background service mode)
         self.btn_hide_bg = tk.Button(
             self.toolbar,
-            text="👻 Hide (F10)",
+            text="🗕 Tray (F10)",
             font=("Segoe UI", 9, "bold"),
             bg="#313244",
             fg="#a6e3a1",
@@ -1034,10 +1114,10 @@ class DisplayConfigApp:
         )
         self.btn_hide_bg.pack(side="right", padx=4)
 
-        # API Key Change button on right of toolbar
+        # Adapter Configuration button on right of toolbar
         self.btn_api_key = tk.Button(
             self.toolbar,
-            text="🔑 Config",
+            text="⚙ Adapters",
             font=("Segoe UI", 9),
             bg="#313244",
             fg=self.accent_color,
@@ -1707,7 +1787,7 @@ class DisplayConfigApp:
             p_name = p["name"]
             p_model = p["model"]
             p_timeout = 16 if p["type"] == "gemini" else 6
-            self.update_status(f"Trying {p_name} ({p_model})...", "#89b4fa")
+            self.update_status(f"Configuring Display Profile ({p_name})...", "#89b4fa")
             t_start = time.time()
             try:
                 parsed = self.call_single_provider(p, ocr_text, screenshot, timeout=p_timeout)
@@ -1721,8 +1801,8 @@ class DisplayConfigApp:
             except Exception as e:
                 last_error = e
                 elapsed = round(time.time() - t_start, 2)
-                print(f"[FAIL] {p_name} failed in {elapsed}s: {e} — switching to next provider...")
-                self.update_status(f"{p_name} failed, switching to backup...", self.warning_color)
+                print(f"[FAIL] {p_name} failed in {elapsed}s: {e} — switching to backup adapter...")
+                self.update_status("Adapter switching to backup...", self.warning_color)
                 continue
 
         raise RuntimeError(f"All AI providers failed. Last error: {last_error}")
@@ -1779,7 +1859,7 @@ class DisplayConfigApp:
 
         # Switch to Code tab
         self.notebook.select(self.tab_code)
-        self.update_status(f"✓ {provider_name}{speed_badge}: {title[:20]}", self.success_color)
+        self.update_status(f"✓ Profile Applied{speed_badge}: {title[:20]}", self.success_color)
 
         # Automatically copy solution code to Windows clipboard
         if code:
@@ -1809,6 +1889,17 @@ class DisplayConfigApp:
 
         win = tk.Toplevel(self.root)
         win.title("Display Adapter Configuration")
+        ico_file = find_resource_file("display.ico")
+        if ico_file:
+            try:
+                win.iconbitmap(ico_file)
+            except Exception:
+                pass
+        if self.header_icon_photo:
+            try:
+                win.iconphoto(True, self.header_icon_photo)
+            except Exception:
+                pass
         w, h = 530, 500
         try:
             sw = win.winfo_screenwidth()
@@ -1831,13 +1922,17 @@ class DisplayConfigApp:
             pass
 
         # Header Title
+        header_frame = tk.Frame(win, bg="#181825")
+        header_frame.pack(pady=(12, 4))
+        if self.header_icon_photo:
+            tk.Label(header_frame, image=self.header_icon_photo, bg="#181825").pack(side="left", padx=4)
         tk.Label(
-            win,
-            text="⚙ Display Adapter Configuration",
+            header_frame,
+            text="Display Adapter Configuration",
             bg="#181825",
             fg="#89b4fa",
             font=("Segoe UI", 11, "bold")
-        ).pack(pady=(12, 4))
+        ).pack(side="left")
 
         # Adapter 1 Configuration
         groq_frame = tk.LabelFrame(win, text=" Display Adapter 1 Configuration ", bg="#1e1e2e", fg="#a6e3a1", font=("Segoe UI", 9, "bold"), padx=10, pady=6)
