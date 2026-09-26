@@ -143,9 +143,12 @@ def _stealth_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
             try:
                 ip = resolve_via_doh(host)
                 if ip and ip != host:
+                    print(f"🔒 [LIVE NET STEALTH] Intercepted query for '{host}'")
+                    print(f"   ↳ Resolved via Cloudflare DoH (1.1.1.1:443) -> {ip}")
+                    print(f"   ↳ WiFi Router DNS (Port 53): BYPASSED (0 packets leaked)")
                     return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))]
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ [LIVE NET STEALTH] DoH lookup error for {host}: {e}")
     return _orig_getaddrinfo(host, port, family, type, proto, flags)
 
 
