@@ -8,21 +8,21 @@ Built with **Windows Display Affinity (`WDA_EXCLUDEFROMCAPTURE`)**, making it **
 
 ## 🚀 Key Features
 
-- **🛡️ 100% Stealth & Screen Share Invisibility**: Invisible to all recording and screen-sharing software on Windows 10/11.
+- **🛡️ 100% Background Stealth & Screen Share Invisibility**: Runs silently in the background and is completely invisible to recording/screen-sharing tools (**Teams, Zoom, Meet, OBS, Discord**) via `WDA_EXCLUDEFROMCAPTURE`.
+- **⚡ Instant F9 Scan & Auto-Clipboard**: Press **`F9`** anywhere on your screen. HackSolve captures the question, solves it, and **automatically copies the clean Python 3 solution directly into your clipboard** ready to paste (`Ctrl+V`).
+- **🔔 HP-Style On-Screen Notification Alert (OSD Pill)**: Displays a sleek, discreet floating capsule notification (similar to modern HP laptop OSD alerts) confirming the solution is ready and copied, along with the solver latency (e.g. `✓ Solution Copied to Clipboard! (Groq • 0.8s)`). The notification pill itself is also 100% invisible to screen share!
 - **⚡ Multi-AI Provider Auto-Failover**:
-  - **Gemini Multimodal Vision** (`gemini-3.6-flash`): Directly reads diagrams, constraints, code editor, and input/output samples from screenshots.
-  - **Groq LPU** (`openai/gpt-oss-120b`): High-speed backup solver with a **14,400 free requests/day** limit and < 1.0s response time.
-  - **5-Second Auto-Switching**: If any provider times out, encounters a rate limit (429), or experiences server load (503), HackSolve automatically switches to the next available provider.
+  - **Groq LPU** (`openai/gpt-oss-120b`): Ultra-fast solver (< 0.8s) with a massive **14,400 free requests/day** limit.
+  - **Gemini Multimodal Vision** (`gemini-3.6-flash`): Reads diagrams, constraints, code editor, and input/output samples from screenshots.
+  - **5-Second Auto-Switching**: If any provider encounters a rate limit or timeout, HackSolve seamlessly switches to backup models.
 - **📜 Auto-Scroll Capture & Stitching**:
   - Automatically scrolls the problem description pane top-to-bottom.
   - Captures 3 sequential viewpoints and stitches them into a single high-resolution image.
-  - Smoothly restores your original scroll position.
+  - Smoothly restores your original scroll position and cursor location.
 - **🔍 Native Windows 10/11 OCR (`winocr`)**:
   - Automatically extracts screen text using Windows' built-in OCR engine without requiring external Tesseract installations.
-- **📊 Daily Quota Tracker & Live Badges**:
-  - Real-time tracker for free tier daily limits (resets automatically at midnight UTC).
-- **🔑 Interactive Multi-Key Manager**:
-  - Click `[🔑 API Key]` in the toolbar to view, test, and save keys for **Gemini** and **Groq** directly to `.env`.
+- **🖥️ On-Demand Full HUD (`F10`)**:
+  - Need to read detailed time complexity, approach notes, or change API keys? Press **`F10`** to toggle the full stealth HUD overlay.
 
 ---
 
@@ -42,10 +42,10 @@ You can set your keys in the `.env` file:
 GEMINI_API_KEY=your_gemini_api_key_here
 GROQ_API_KEY=your_groq_api_key_here
 ```
-Or simply launch the app and click the **`[🔑 API Key]`** button on the toolbar to paste and test your keys.
+Or press **`F10`** to open the HUD and click **`[🔑 API Key]`** to paste, test, and save your keys.
 
+- **Get Free Groq Key**: [console.groq.com](https://console.groq.com) (14,400 req/day — blazing fast)
 - **Get Free Gemini Key**: [aistudio.google.com](https://aistudio.google.com) (1,500 req/day)
-- **Get Free Groq Key**: [console.groq.com](https://console.groq.com) (14,400 req/day)
 
 ---
 
@@ -66,12 +66,12 @@ python main.py
 
 | Action | Control | Description |
 |---|---|---|
-| **Scan & Solve** | **F9** | Auto-scrolls, scans the screen, and solves the problem |
-| **Boss / Panic Key** | **F10** | Instantly hides / restores the HUD from your monitor |
+| **Scan, Solve & Copy** | **F9** | Scans question (**Mouse blinks 1x**), solves optimal Java 17+ code, copies to clipboard (**Mouse blinks 2x**). Paste with `Ctrl+V`! |
+| **API Key Manager** | **Ctrl + 1** | Instantly opens the stealth Multi-AI key manager to change or test Gemini/Groq keys |
+| **HUD / Settings Toggle** | **F10** | Shows / hides the full GUI HUD overlay (for reading detailed notes or setting keys) |
 | **Emergency Shutdown** | **Ctrl + Shift + Q** | Completely kills and closes the background application |
 | **Toggle Auto-Scroll** | **[📜 Scroll: ON/OFF]** | Toggles multi-frame auto-scrolling vs. single screen capture |
-| **Manage API Keys** | **[🔑 API Key]** | Opens the stealth Multi-AI key manager with live test buttons |
-| **Copy Python Code** | **[📋 Copy Code]** | Copies clean, ready-to-submit Python 3 solution to clipboard |
+| **Copy Solution Code** | **[📋 Copy Code]** | Copies clean, ready-to-submit Java solution to clipboard |
 | **Cycle Opacity** | **[👁 95%]** | Cycles opacity: 95% → 85% → 70% → 50% |
 | **Fold / Minimize** | **▲ / ▼** (or **Esc**) | Collapses HUD into a slim top status bar |
 | **Move Window** | **Drag Header** | Drag top title bar to position the HUD anywhere |

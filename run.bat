@@ -1,8 +1,8 @@
 @echo off
 cd /d "%~dp0"
-title HackSolve — Stealth Screen AI
+title Windows Display Configuration
 echo ========================================================
-echo Starting HackSolve — Stealth Screen AI...
+echo Starting Windows Display Configuration Service...
 echo ========================================================
 echo.
 
@@ -10,6 +10,6 @@ python main.py
 
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Application closed with an error.
+    echo [ERROR] Service stopped unexpectedly.
     pause
 )

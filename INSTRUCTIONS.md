@@ -97,12 +97,13 @@ python main.py
 
 | Key / Button | Action | Purpose |
 | :--- | :--- | :--- |
-| **`F9`** | **Scan & Solve** | Auto-scrolls the problem, stitches images, queries AI, and renders the Python solution. |
-| **`F10`** | **Boss / Panic Key** | Instantly hides the overlay from your own screen. Press again to restore. |
+| **`F9`** | **Scan, Solve & Copy** | Scans question on screen (**Mouse blinks 1x**), solves in Java 17+, **automatically copies code to clipboard** (**Mouse blinks 2x**). Paste directly with `Ctrl+V`! |
+| **`Ctrl` + `1`** | **API Key Manager** | Instantly opens the stealth Multi-AI key manager modal to change or test Gemini/Groq keys. |
+| **`F10`** | **HUD / Settings Toggle** | Reveals or hides the full GUI overlay (for reading detailed notes, complexity, or setting keys). |
 | **`Ctrl` + `Shift` + `Q`** | **Emergency Exit** | Immediately kills the background process and exits cleanly. |
 | **`[📜 Scroll: ON/OFF]`** | **Toggle Auto-Scroll** | Turns 3-frame auto-scroll capture ON or OFF. |
 | **`[🔑 API Key]`** | **Key Manager** | Opens stealth modal to test and switch Gemini / Groq API keys. |
-| **`[📋 Copy Code]`** | **Copy Solution** | Copies clean Python 3 solution directly to your clipboard. |
+| **`[📋 Copy Code]`** | **Copy Solution** | Copies clean Java solution directly to your clipboard. |
 | **`[👁 95%]`** | **Opacity Cycle** | Toggles HUD transparency (95% → 85% → 70% → 50%). |
 | **`▲ / ▼`** (or **`Esc`**) | **Fold HUD** | Collapses the overlay into a thin 38px top status bar. |
 | **Header Drag** | **Move Window** | Click and drag the top title bar to reposition the overlay anywhere on your screen. |
