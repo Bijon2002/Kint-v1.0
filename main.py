@@ -15,6 +15,7 @@ import ctypes
 from ctypes import wintypes
 import tkinter as tk
 from tkinter import ttk, messagebox
+import re
 
 # Optional dependencies with graceful fallbacks
 try:
@@ -59,7 +60,7 @@ import struct
 # =====================================================================
 # USER CONFIGURATION (Edit these as needed)
 # =====================================================================
-LANGUAGE = "Java"  # Target language: "Java", "Python", "C++", "JavaScript"
+LANGUAGE = "Fullstack (React / Next.js / Node.js / TypeScript)"  # Target: React, Next.js, Node.js, TS/JS
 GEMINI_API_KEY = "YOUR_API_KEY_HERE"  # Set your key here or in .env file
 GROQ_API_KEY = "YOUR_GROQ_KEY_HERE"
 OPENROUTER_API_KEY = "YOUR_OPENROUTER_KEY_HERE"
@@ -471,8 +472,8 @@ class NotificationPill:
         self.win.attributes("-alpha", 0.0)
         self.win.withdraw()
 
-        self.width = 230
-        self.height = 38
+        self.width = 280
+        self.height = 46
         self._hide_job = None
 
         self._build_ui()
@@ -492,6 +493,10 @@ class NotificationPill:
                 hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
             self.hwnd = hwnd
             apply_stealth_affinity(hwnd)
+            try:
+                apply_stealth_affinity(self.win.winfo_id())
+            except Exception:
+                pass
             hide_window_from_taskbar(hwnd)
         except Exception as e:
             print(f"[Toast Error] {e}")
@@ -517,16 +522,29 @@ class NotificationPill:
         )
         self.lbl_icon.pack(side="left", padx=(2, 6))
 
-        # Center text
+        # Center text container (Title + Subtitle)
+        self.text_container = tk.Frame(self.inner_frame, bg="#1e1e2e")
+        self.text_container.pack(side="left", fill="both", expand=True)
+
         self.lbl_title = tk.Label(
-            self.inner_frame,
+            self.text_container,
             text="Answer ready — Ctrl+V",
             font=("Segoe UI", 9, "bold"),
             bg="#1e1e2e",
             fg="#cdd6f4",
             anchor="w"
         )
-        self.lbl_title.pack(side="left", fill="x", expand=True)
+        self.lbl_title.pack(fill="x")
+
+        self.lbl_subtitle = tk.Label(
+            self.text_container,
+            text="",
+            font=("Segoe UI", 7),
+            bg="#1e1e2e",
+            fg="#a6adc8",
+            anchor="w"
+        )
+        self.lbl_subtitle.pack(fill="x")
 
     def update_position(self):
         try:
@@ -561,10 +579,18 @@ class NotificationPill:
         self.lbl_icon.config(text=icon, fg=border_color)
         self.lbl_title.config(text=title)
 
+        if subtitle:
+            self.lbl_subtitle.config(text=subtitle)
+            if not self.lbl_subtitle.winfo_ismapped():
+                self.lbl_subtitle.pack(fill="x")
+        else:
+            self.lbl_subtitle.pack_forget()
+
         self.update_position()
         self.win.deiconify()
-        self.win.attributes("-alpha", 0.92)
+        self.win.attributes("-alpha", 0.94)
         if hasattr(self, "hwnd"):
+            apply_stealth_affinity(self.hwnd)
             hide_window_from_taskbar(self.hwnd)
 
         if duration_ms > 0:
@@ -575,6 +601,698 @@ class NotificationPill:
             self.win.after_cancel(self._hide_job)
             self._hide_job = None
         self.win.withdraw()
+
+
+class TeleprompterCard:
+    """
+    Sleek, semi-transparent floating teleprompter code card.
+    100% invisible to screen-sharing and capture tools via Windows Display Affinity (WDA_EXCLUDEFROMCAPTURE).
+    Displays clean solution code with syntax highlighting, line numbers, time & space complexity,
+    adjustable opacity, resizable font, smooth dragging, collapse/expand, and panic/hide hotkeys.
+    """
+    def __init__(self, parent_root: tk.Tk, on_copy=None, on_open_settings=None):
+        self.root = parent_root
+        self.on_copy_callback = on_copy
+        self.on_open_settings = on_open_settings
+
+        self.win = tk.Toplevel(self.root)
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        self.win.withdraw()
+
+        # Visual state
+        self.opacity_presets = [0.95, 0.85, 0.70, 0.50, 0.30]
+        self.opacity_idx = 1  # 0.85 default
+        self.opacity = self.opacity_presets[self.opacity_idx]
+        self.win.attributes("-alpha", self.opacity)
+
+        self.font_size = 10
+        self.current_code = ""
+        self.current_explanation = ""
+        self.current_title = "Solution Ready"
+        self.current_mode = "code"  # "code" or "approach"
+        self.is_collapsed = False
+        self.is_click_through = False
+
+        # Dimensions: Sleek card placed on upper right
+        self.card_width = 540
+        self.card_height = 460
+        self.collapsed_height = 36
+
+        # Dragging & resizing state
+        self._drag_x = 0
+        self._drag_y = 0
+        self._resize_start_x = 0
+        self._resize_start_y = 0
+        self._orig_w = self.card_width
+        self._orig_h = self.card_height
+
+        self._init_position()
+        self._build_ui()
+        self.win.update_idletasks()
+        self._init_stealth()
+        self._bind_keys()
+
+    def _init_position(self):
+        try:
+            u32 = ctypes.windll.user32
+            sw = u32.GetSystemMetrics(0)
+            sh = u32.GetSystemMetrics(1)
+        except Exception:
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+        # Default: upper right corner of primary display
+        self.pos_x = max(20, sw - self.card_width - 28)
+        self.pos_y = 48
+        self.win.geometry(f"{self.card_width}x{self.card_height}+{self.pos_x}+{self.pos_y}")
+
+    def _init_stealth(self):
+        if sys.platform != "win32":
+            return
+        try:
+            hwnd = None
+            try:
+                frame_id = self.win.wm_frame()
+                if frame_id:
+                    hwnd = int(frame_id, 16)
+            except Exception:
+                pass
+            if not hwnd:
+                hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
+            self.hwnd = hwnd
+
+            # Set affinity on both parent frame and winfo_id
+            apply_stealth_affinity(hwnd)
+            try:
+                apply_stealth_affinity(self.win.winfo_id())
+            except Exception:
+                pass
+            hide_window_from_taskbar(hwnd)
+        except Exception as e:
+            print(f"[Teleprompter Stealth Error] {e}")
+
+    def _bind_keys(self):
+        self.win.bind("<Escape>", lambda e: self.hide())
+        self.win.bind("<Control-c>", lambda e: self.copy_code())
+        self.win.bind("<Control-plus>", lambda e: self.change_font_size(1))
+        self.win.bind("<Control-minus>", lambda e: self.change_font_size(-1))
+        self.win.bind("<Control-equal>", lambda e: self.change_font_size(1))
+        self.win.bind("<Control-bracketleft>", lambda e: self.cycle_opacity(-1))
+        self.win.bind("<Control-bracketright>", lambda e: self.cycle_opacity(1))
+
+    def _build_ui(self):
+        # Outer border
+        self.win.configure(bg="#11111b")
+        self.border_frame = tk.Frame(self.win, bg="#313244", bd=1)
+        self.border_frame.pack(fill="both", expand=True)
+
+        self.main_container = tk.Frame(self.border_frame, bg="#11111b")
+        self.main_container.pack(fill="both", expand=True, padx=1, pady=1)
+
+        # 1. Header Bar (Draggable)
+        self.header_bar = tk.Frame(self.main_container, bg="#181825", height=36)
+        self.header_bar.pack(fill="x", side="top")
+        self.header_bar.pack_propagate(False)
+
+        self.header_bar.bind("<Button-1>", self._start_drag)
+        self.header_bar.bind("<B1-Motion>", self._do_drag)
+        self.header_bar.bind("<Double-Button-1>", lambda e: self.toggle_collapse())
+
+        # Header Left: Drag indicator + Title + Latency badge
+        self.header_left = tk.Frame(self.header_bar, bg="#181825")
+        self.header_left.pack(side="left", fill="y", padx=(6, 0))
+        self.header_left.bind("<Button-1>", self._start_drag)
+        self.header_left.bind("<B1-Motion>", self._do_drag)
+        self.header_left.bind("<Double-Button-1>", lambda e: self.toggle_collapse())
+
+        self.lbl_drag_icon = tk.Label(
+            self.header_left,
+            text="⚡",
+            font=("Segoe UI", 10),
+            bg="#181825",
+            fg="#89b4fa"
+        )
+        self.lbl_drag_icon.pack(side="left", padx=(2, 4))
+        self.lbl_drag_icon.bind("<Button-1>", self._start_drag)
+        self.lbl_drag_icon.bind("<B1-Motion>", self._do_drag)
+
+        self.lbl_title = tk.Label(
+            self.header_left,
+            text="Teleprompter",
+            font=("Segoe UI", 9, "bold"),
+            bg="#181825",
+            fg="#cdd6f4"
+        )
+        self.lbl_title.pack(side="left", padx=(0, 6))
+        self.lbl_title.bind("<Button-1>", self._start_drag)
+        self.lbl_title.bind("<B1-Motion>", self._do_drag)
+
+        self.lbl_badge = tk.Label(
+            self.header_left,
+            text="Ready",
+            font=("Segoe UI", 7, "bold"),
+            bg="#1e1e2e",
+            fg="#a6e3a1",
+            padx=5,
+            pady=1
+        )
+        self.lbl_badge.pack(side="left", padx=(0, 4))
+        self.lbl_badge.bind("<Button-1>", self._start_drag)
+        self.lbl_badge.bind("<B1-Motion>", self._do_drag)
+
+        # Header Right: Action buttons
+        self.header_right = tk.Frame(self.header_bar, bg="#181825")
+        self.header_right.pack(side="right", fill="y")
+
+        # Close
+        self.btn_close = tk.Button(
+            self.header_right,
+            text="✕",
+            font=("Segoe UI", 8, "bold"),
+            bg="#181825",
+            fg="#f38ba8",
+            activebackground="#f38ba8",
+            activeforeground="#11111b",
+            bd=0,
+            padx=8,
+            cursor="hand2",
+            command=self.hide
+        )
+        self.btn_close.pack(side="right", fill="y")
+
+        # Collapse / Expand
+        self.btn_collapse = tk.Button(
+            self.header_right,
+            text="▲",
+            font=("Segoe UI", 8),
+            bg="#181825",
+            fg="#a6adc8",
+            activebackground="#313244",
+            activeforeground="#cdd6f4",
+            bd=0,
+            padx=6,
+            cursor="hand2",
+            command=self.toggle_collapse
+        )
+        self.btn_collapse.pack(side="right", fill="y")
+
+        # Copy Code
+        self.btn_copy = tk.Button(
+            self.header_right,
+            text="📋 Copy",
+            font=("Segoe UI", 8, "bold"),
+            bg="#313244",
+            fg="#89b4fa",
+            activebackground="#45475a",
+            activeforeground="#ffffff",
+            bd=0,
+            padx=6,
+            cursor="hand2",
+            command=self.copy_code
+        )
+        self.btn_copy.pack(side="right", padx=3, pady=4)
+
+        # Click-through toggle
+        self.btn_click_thru = tk.Button(
+            self.header_right,
+            text="🔓 Focus",
+            font=("Segoe UI", 8),
+            bg="#181825",
+            fg="#a6adc8",
+            activebackground="#313244",
+            activeforeground="#ffffff",
+            bd=0,
+            padx=5,
+            cursor="hand2",
+            command=self.toggle_click_through
+        )
+        self.btn_click_thru.pack(side="right", padx=2, pady=4)
+
+        # Opacity Preset Cycle
+        self.btn_opacity = tk.Button(
+            self.header_right,
+            text=f"👁 {int(self.opacity*100)}%",
+            font=("Segoe UI", 8),
+            bg="#181825",
+            fg="#a6adc8",
+            activebackground="#313244",
+            activeforeground="#cdd6f4",
+            bd=0,
+            padx=4,
+            cursor="hand2",
+            command=self.cycle_opacity
+        )
+        self.btn_opacity.pack(side="right", padx=2, pady=4)
+
+        # Font Zoom: A- and A+
+        self.btn_font_dec = tk.Button(
+            self.header_right,
+            text="A-",
+            font=("Segoe UI", 8),
+            bg="#181825",
+            fg="#a6adc8",
+            activebackground="#313244",
+            activeforeground="#cdd6f4",
+            bd=0,
+            padx=4,
+            cursor="hand2",
+            command=lambda: self.change_font_size(-1)
+        )
+        self.btn_font_dec.pack(side="right", pady=4)
+
+        self.btn_font_inc = tk.Button(
+            self.header_right,
+            text="A+",
+            font=("Segoe UI", 8),
+            bg="#181825",
+            fg="#a6adc8",
+            activebackground="#313244",
+            activeforeground="#cdd6f4",
+            bd=0,
+            padx=4,
+            cursor="hand2",
+            command=lambda: self.change_font_size(1)
+        )
+        self.btn_font_inc.pack(side="right", pady=4)
+
+        # Mode buttons: [Code] | [Talking Points]
+        self.mode_frame = tk.Frame(self.header_bar, bg="#181825")
+        self.mode_frame.pack(side="right", padx=(0, 6))
+
+        self.btn_mode_approach = tk.Button(
+            self.mode_frame,
+            text="Talking Points",
+            font=("Segoe UI", 8),
+            bg="#1e1e2e",
+            fg="#a6adc8",
+            activebackground="#313244",
+            activeforeground="#cdd6f4",
+            bd=0,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            command=lambda: self.switch_mode("approach")
+        )
+        self.btn_mode_approach.pack(side="right", padx=1)
+
+        self.btn_mode_code = tk.Button(
+            self.mode_frame,
+            text="Answer / Code",
+            font=("Segoe UI", 8, "bold"),
+            bg="#313244",
+            fg="#89b4fa",
+            activebackground="#313244",
+            activeforeground="#cdd6f4",
+            bd=0,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            command=lambda: self.switch_mode("code")
+        )
+        self.btn_mode_code.pack(side="right", padx=1)
+
+        # 2. Main Content Views (Stacked)
+        self.content_container = tk.Frame(self.main_container, bg="#11111b")
+        self.content_container.pack(fill="both", expand=True)
+
+        # VIEW A: Code View
+        self.code_frame = tk.Frame(self.content_container, bg="#11111b")
+        self.code_frame.pack(fill="both", expand=True)
+
+        # Gutter for line numbers
+        self.txt_lines = tk.Text(
+            self.code_frame,
+            width=4,
+            padx=4,
+            pady=6,
+            takefocus=0,
+            bd=0,
+            bg="#11111b",
+            fg="#45475a",
+            state="disabled",
+            font=("Consolas", self.font_size),
+            wrap="none"
+        )
+        self.txt_lines.pack(side="left", fill="y")
+
+        # Scrollbar
+        self.scrollbar = tk.Scrollbar(self.code_frame, orient="vertical", bg="#181825", bd=0)
+        self.scrollbar.pack(side="right", fill="y")
+
+        # Code text box
+        self.txt_code = tk.Text(
+            self.code_frame,
+            wrap="none",
+            bd=0,
+            padx=6,
+            pady=6,
+            bg="#11111b",
+            fg="#cdd6f4",
+            insertbackground="#89b4fa",
+            selectbackground="#45475a",
+            selectforeground="#ffffff",
+            font=("Consolas", self.font_size)
+        )
+        self.txt_code.pack(side="left", fill="both", expand=True)
+
+        # Synchronize scrolling
+        def _on_scroll(*args):
+            self.txt_lines.yview(*args)
+            self.txt_code.yview(*args)
+        self.scrollbar.config(command=_on_scroll)
+
+        def _on_text_scroll(*args):
+            self.scrollbar.set(*args)
+            self.txt_lines.yview_moveto(args[0])
+        self.txt_code.config(yscrollcommand=_on_text_scroll)
+
+        # VIEW B: Approach View
+        self.approach_frame = tk.Frame(self.content_container, bg="#11111b")
+
+        # Complexity badges strip
+        self.badges_strip = tk.Frame(self.approach_frame, bg="#181825", padx=8, pady=4)
+        self.badges_strip.pack(fill="x", side="top")
+
+        self.lbl_time_complexity = tk.Label(
+            self.badges_strip,
+            text="⏱ Time: O(N)",
+            font=("Segoe UI", 8, "bold"),
+            bg="#1e1e2e",
+            fg="#a6e3a1",
+            padx=6,
+            pady=2
+        )
+        self.lbl_time_complexity.pack(side="left", padx=(0, 6))
+
+        self.lbl_space_complexity = tk.Label(
+            self.badges_strip,
+            text="💾 Space: O(1)",
+            font=("Segoe UI", 8, "bold"),
+            bg="#1e1e2e",
+            fg="#89b4fa",
+            padx=6,
+            pady=2
+        )
+        self.lbl_space_complexity.pack(side="left", padx=0)
+
+        # Scrollbar for approach
+        self.appr_scroll = tk.Scrollbar(self.approach_frame, orient="vertical", bg="#181825", bd=0)
+        self.appr_scroll.pack(side="right", fill="y")
+
+        self.txt_approach = tk.Text(
+            self.approach_frame,
+            wrap="word",
+            bd=0,
+            padx=10,
+            pady=8,
+            bg="#11111b",
+            fg="#cdd6f4",
+            insertbackground="#89b4fa",
+            selectbackground="#45475a",
+            selectforeground="#ffffff",
+            font=("Segoe UI", 10),
+            yscrollcommand=self.appr_scroll.set
+        )
+        self.txt_approach.pack(side="left", fill="both", expand=True)
+        self.appr_scroll.config(command=self.txt_approach.yview)
+
+        # 3. Bottom Status & Resize Bar
+        self.bottom_bar = tk.Frame(self.main_container, bg="#181825", height=20)
+        self.bottom_bar.pack(fill="x", side="bottom")
+        self.bottom_bar.pack_propagate(False)
+
+        self.lbl_status = tk.Label(
+            self.bottom_bar,
+            text="Hidden from screen share • Esc to hide • F10 / F8 to toggle",
+            font=("Segoe UI", 7),
+            bg="#181825",
+            fg="#585b70"
+        )
+        self.lbl_status.pack(side="left", padx=8)
+
+        self.lbl_grip = tk.Label(
+            self.bottom_bar,
+            text="◢",
+            font=("Segoe UI", 8),
+            bg="#181825",
+            fg="#45475a",
+            cursor="size_nw_se"
+        )
+        self.lbl_grip.pack(side="right", padx=4)
+        self.lbl_grip.bind("<Button-1>", self._start_resize)
+        self.lbl_grip.bind("<B1-Motion>", self._do_resize)
+
+    def _start_drag(self, event):
+        self._drag_x = event.x
+        self._drag_y = event.y
+
+    def _do_drag(self, event):
+        x = self.win.winfo_x() + (event.x - self._drag_x)
+        y = self.win.winfo_y() + (event.y - self._drag_y)
+        self.pos_x = x
+        self.pos_y = y
+        h = self.collapsed_height if self.is_collapsed else self.card_height
+        self.win.geometry(f"{self.card_width}x{h}+{x}+{y}")
+
+    def _start_resize(self, event):
+        self._resize_start_x = event.x_root
+        self._resize_start_y = event.y_root
+        self._orig_w = self.card_width
+        self._orig_h = self.card_height
+
+    def _do_resize(self, event):
+        if self.is_collapsed:
+            return
+        dw = event.x_root - self._resize_start_x
+        dh = event.y_root - self._resize_start_y
+        new_w = max(360, self._orig_w + dw)
+        new_h = max(200, self._orig_h + dh)
+        self.card_width = new_w
+        self.card_height = new_h
+        self.win.geometry(f"{new_w}x{new_h}+{self.pos_x}+{self.pos_y}")
+
+    def toggle_collapse(self):
+        if self.is_collapsed:
+            self.content_container.pack(fill="both", expand=True)
+            self.bottom_bar.pack(fill="x", side="bottom")
+            self.win.geometry(f"{self.card_width}x{self.card_height}+{self.pos_x}+{self.pos_y}")
+            self.btn_collapse.config(text="▲")
+            self.is_collapsed = False
+        else:
+            self.bottom_bar.pack_forget()
+            self.content_container.pack_forget()
+            self.win.geometry(f"{self.card_width}x{self.collapsed_height}+{self.pos_x}+{self.pos_y}")
+            self.btn_collapse.config(text="▼")
+            self.is_collapsed = True
+
+    def switch_mode(self, mode: str):
+        self.current_mode = mode
+        if mode == "code":
+            self.approach_frame.pack_forget()
+            self.code_frame.pack(fill="both", expand=True)
+            self.btn_mode_code.config(bg="#313244", fg="#89b4fa", font=("Segoe UI", 8, "bold"))
+            self.btn_mode_approach.config(bg="#1e1e2e", fg="#a6adc8", font=("Segoe UI", 8))
+        else:
+            self.code_frame.pack_forget()
+            self.approach_frame.pack(fill="both", expand=True)
+            self.btn_mode_approach.config(bg="#313244", fg="#89b4fa", font=("Segoe UI", 8, "bold"))
+            self.btn_mode_code.config(bg="#1e1e2e", fg="#a6adc8", font=("Segoe UI", 8))
+
+    def change_font_size(self, delta: int):
+        new_size = max(8, min(20, self.font_size + delta))
+        if new_size != self.font_size:
+            self.font_size = new_size
+            self.txt_code.config(font=("Consolas", self.font_size))
+            self.txt_lines.config(font=("Consolas", self.font_size))
+            self._apply_syntax_highlighting()
+
+    def cycle_opacity(self, step: int = 1):
+        self.opacity_idx = (self.opacity_idx + step) % len(self.opacity_presets)
+        self.opacity = self.opacity_presets[self.opacity_idx]
+        self.win.attributes("-alpha", self.opacity)
+        self.btn_opacity.config(text=f"👁 {int(self.opacity*100)}%")
+
+    def toggle_click_through(self):
+        if sys.platform != "win32" or not hasattr(self, "hwnd"):
+            return
+        try:
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(self.hwnd, -20)
+            WS_EX_TRANSPARENT = 0x00000020
+            WS_EX_LAYERED = 0x00080000
+            if not self.is_click_through:
+                user32.SetWindowLongW(self.hwnd, -20, style | WS_EX_LAYERED | WS_EX_TRANSPARENT)
+                self.is_click_through = True
+                self.btn_click_thru.config(text="🔒 Thru", fg="#f9e2af")
+            else:
+                user32.SetWindowLongW(self.hwnd, -20, style & ~WS_EX_TRANSPARENT)
+                self.is_click_through = False
+                self.btn_click_thru.config(text="🔓 Focus", fg="#a6adc8")
+            user32.SetWindowPos(self.hwnd, 0, 0, 0, 0, 0, 0x0027)
+        except Exception as e:
+            print(f"[Teleprompter click-thru] {e}")
+
+    def copy_code(self):
+        code = self.current_code.strip()
+        if not code:
+            code = self.txt_code.get("1.0", tk.END).strip()
+        if code:
+            copy_to_windows_clipboard(code)
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(code)
+            except Exception:
+                pass
+            orig_text = self.btn_copy.cget("text")
+            self.btn_copy.config(text="✓ Copied!", fg="#a6e3a1")
+            self.win.after(1500, lambda: self.btn_copy.config(text=orig_text, fg="#89b4fa"))
+
+    def show(self):
+        self.win.deiconify()
+        self.win.lift()
+        self.win.attributes("-topmost", True)
+        self.win.attributes("-alpha", self.opacity)
+        if hasattr(self, "hwnd"):
+            apply_stealth_affinity(self.hwnd)
+            hide_window_from_taskbar(self.hwnd)
+
+    def hide(self):
+        self.win.withdraw()
+
+    def toggle_visibility(self):
+        if self.win.state() == "withdrawn" or not self.win.winfo_viewable():
+            self.show()
+        else:
+            self.hide()
+
+    def clear(self):
+        self.current_code = ""
+        self.current_explanation = ""
+        self.current_title = "Solution Ready"
+        self.txt_code.delete("1.0", tk.END)
+        self.txt_lines.config(state="normal")
+        self.txt_lines.delete("1.0", tk.END)
+        self.txt_lines.config(state="disabled")
+        self.txt_approach.delete("1.0", tk.END)
+        self.lbl_title.config(text="Teleprompter")
+        self.lbl_badge.config(text="Ready")
+        self.hide()
+
+    def _update_line_numbers(self):
+        code_text = self.txt_code.get("1.0", tk.END)
+        lines = code_text.split("\n")
+        num_lines = max(1, len(lines) - 1 if lines and not lines[-1] else len(lines))
+        line_num_str = "\n".join(str(i) for i in range(1, num_lines + 1))
+        self.txt_lines.config(state="normal")
+        self.txt_lines.delete("1.0", tk.END)
+        self.txt_lines.insert("1.0", line_num_str)
+        self.txt_lines.config(state="disabled")
+
+    def _apply_syntax_highlighting(self):
+        text = self.txt_code.get("1.0", tk.END)
+        if not text.strip():
+            return
+
+        self.txt_code.tag_configure("kw", foreground="#89b4fa", font=("Consolas", self.font_size, "bold"))
+        self.txt_code.tag_configure("hook", foreground="#cba6f7", font=("Consolas", self.font_size, "bold"))
+        self.txt_code.tag_configure("jsx_tag", foreground="#f38ba8", font=("Consolas", self.font_size))
+        self.txt_code.tag_configure("type", foreground="#f9e2af", font=("Consolas", self.font_size))
+        self.txt_code.tag_configure("str", foreground="#a6e3a1", font=("Consolas", self.font_size))
+        self.txt_code.tag_configure("comment", foreground="#6c7086", font=("Consolas", self.font_size, "italic"))
+        self.txt_code.tag_configure("num", foreground="#fab387", font=("Consolas", self.font_size))
+        self.txt_code.tag_configure("fn", foreground="#89dceb", font=("Consolas", self.font_size))
+
+        for t in ("kw", "hook", "jsx_tag", "type", "str", "comment", "num", "fn"):
+            self.txt_code.tag_remove(t, "1.0", tk.END)
+
+        patterns = [
+            ("comment", r'(#[^\n]*|//[^\n]*|/\*[\s\S]*?\*/)'),
+            ("str", r'("""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`)'),
+            ("hook", r'\b(useState|useEffect|useContext|useReducer|useCallback|useMemo|useRef|useImperativeHandle|useLayoutEffect|useTransition|useDeferredValue|useRouter|usePathname|useSearchParams|useFormStatus)\b'),
+            ("kw", r'\b(import|export|default|from|as|const|let|var|function|return|if|elif|else|for|while|in|of|try|catch|finally|throw|new|this|super|extends|implements|interface|type|enum|public|private|protected|readonly|static|void|typeof|instanceof|yield|async|await|switch|case|break|continue|package)\b'),
+            ("jsx_tag", r'(</?[A-Za-z0-9_\.]+|/>)'),
+            ("type", r'\b(string|number|boolean|any|unknown|never|void|null|undefined|Promise|Record|Array|ReactNode|FC|NextPage|Request|Response|NextResponse|NextRequest|Props|State|int|float|double|long|boolean|List|Map|Set)\b'),
+            ("num", r'\b\d+(?:\.\d+)?\b'),
+            ("fn", r'\b([A-Za-z_]\w*)(?=\s*\()'),
+        ]
+
+        for tag, pat in patterns:
+            for m in re.finditer(pat, text):
+                start = f"1.0 + {m.start()} chars"
+                end = f"1.0 + {m.end()} chars"
+                self.txt_code.tag_add(tag, start, end)
+
+    def _update_approach_view(self, solution_data: dict):
+        explanation = solution_data.get("explanation", "")
+        if isinstance(explanation, list):
+            raw_text = "\n".join(f"• {item}" for item in explanation)
+        else:
+            raw_text = str(explanation)
+
+        # Detect or extract question category
+        category = solution_data.get("category", "")
+        if not category:
+            search_corpus = (raw_text + " " + self.current_code).lower()
+            if any(k in search_corpus for k in ["correct answer", "option a", "option b", "option c", "option d", "mcq", "multiple choice"]):
+                category = "📝 Multiple Choice"
+            elif any(k in search_corpus for k in ["react", "hook", "useeffect", "usestate", "jsx", "tsx"]):
+                category = "⚛ React / UI"
+            elif any(k in search_corpus for k in ["next", "app router", "server component", "server action"]):
+                category = "▲ Next.js App"
+            elif any(k in search_corpus for k in ["node", "express", "middleware", "req,", "res,"]):
+                category = "🟢 Node.js / Backend"
+            elif any(k in search_corpus for k in ["system design", "microservice", "scalability", "load balancer"]):
+                category = "📐 System Design"
+            elif any(k in search_corpus for k in ["time complexity", "o(n", "o(1", "leetcode", "algorithm"]):
+                category = "⚡ Algorithm / DSA"
+            else:
+                category = "💡 Theory / Concept"
+
+        # Complexity / takeaway badge
+        complexity_str = solution_data.get("time_complexity", "")
+        if not complexity_str:
+            time_match = re.search(r'(?:Time(?:\s+Complexity)?[:\s]+)(O\([^\)]+\)|[^\n,\.]+)', raw_text, re.IGNORECASE)
+            if time_match:
+                complexity_str = f"⏱ Time: {time_match.group(1).strip()}"
+            else:
+                complexity_str = "⚡ Senior Technical Insights"
+
+        self.lbl_time_complexity.config(text=f"{category[:20]}")
+        self.lbl_space_complexity.config(text=f"{complexity_str[:22]}")
+
+        self.txt_approach.delete("1.0", tk.END)
+        self.txt_approach.insert("1.0", raw_text if raw_text.strip() else "Comprehensive technical interview talking points & insights.")
+
+    def show_solution(self, solution_data: dict, ocr_text: str = ""):
+        code = solution_data.get("code", "").strip()
+        explanation = solution_data.get("explanation", "")
+        title = solution_data.get("problem_title", "Problem Solved")
+        provider_name = solution_data.get("provider_name", "AI")
+        elapsed_sec = solution_data.get("elapsed_sec", "")
+
+        self.current_code = code
+        self.current_explanation = explanation
+        self.current_title = title
+
+        # Update Title & Badge
+        self.lbl_title.config(text=f"⚡ {title[:20]}")
+        speed_badge = f"{provider_name} • {elapsed_sec}s" if elapsed_sec else provider_name
+        self.lbl_badge.config(text=speed_badge)
+
+        # Update Code & Line numbers
+        self.txt_code.delete("1.0", tk.END)
+        self.txt_code.insert("1.0", code)
+        self._update_line_numbers()
+        self._apply_syntax_highlighting()
+
+        # Update Approach
+        self._update_approach_view(solution_data)
+
+        # Default to code view
+        self.switch_mode("code")
+
+        # Reveal window
+        self.show()
 
 
 class QuotaTracker:
@@ -679,13 +1397,20 @@ class DisplayConfigApp:
         # Toast Notification Pill
         self.toast = NotificationPill(self.root)
 
+        # Floating Teleprompter Code Card (Screen-share invisible via WDA)
+        self.teleprompter = TeleprompterCard(
+            parent_root=self.root,
+            on_copy=self.copy_solution_code,
+            on_open_settings=self.toggle_stealth_visibility
+        )
+
         # Register global hotkey
         self.setup_hotkey()
 
         # Start hidden in background
         self._is_hidden = True
         self.root.withdraw()
-        self.root.after(400, lambda: self.show_toast("Display Service Active", "Press F9 | Ctrl+Shift+H to toggle", "success", 2500))
+        self.root.after(400, lambda: self.show_toast("Display Service Active", "F9: Scan & Solve | F10: Teleprompter", "success", 2500))
 
         # If no valid API key is set on first run, automatically open the Key Manager setup UI
         if not get_active_gemini_key() and not get_active_groq_key():
@@ -764,20 +1489,27 @@ class DisplayConfigApp:
         """Binds global hotkey if keyboard library is available."""
         if keyboard:
             try:
-                # F9: Scan screen, solve, and copy to clipboard
+                # F9: Scan screen, solve, and display floating teleprompter + copy to clipboard
                 keyboard.add_hotkey(HOTKEY, self.trigger_scan_thread, suppress=False)
+                # F10 or F8: Instantly toggles the Floating Teleprompter Code Card
+                keyboard.add_hotkey("f10", self.toggle_teleprompter, suppress=False)
+                keyboard.add_hotkey("f8", self.toggle_teleprompter, suppress=False)
                 # Ctrl + Shift + 1: Instantly opens API Key Manager modal
                 keyboard.add_hotkey("ctrl+shift+1", lambda: self.root.after(0, self.show_api_key_prompt), suppress=False)
                 # Ctrl + 1 as alternative
                 keyboard.add_hotkey("ctrl+1", lambda: self.root.after(0, self.show_api_key_prompt), suppress=False)
-                # F10 or Ctrl + Shift + H: Instantly hides or restores the HUD
-                keyboard.add_hotkey("f10", self.toggle_stealth_visibility, suppress=False)
+                # Ctrl + Shift + H or Ctrl + H: Toggles background Diagnostic / Settings HUD
                 keyboard.add_hotkey("ctrl+shift+h", self.toggle_stealth_visibility, suppress=False)
                 keyboard.add_hotkey("ctrl+h", self.toggle_stealth_visibility, suppress=False)
                 # Ctrl + Shift + Q: Global emergency shutdown / exit hotkey
                 keyboard.add_hotkey("ctrl+shift+q", self.quit_application, suppress=False)
             except Exception as e:
                 print(f"[Hotkey Warning] Could not hook hotkeys: {e}. (Run as Administrator)")
+
+    def toggle_teleprompter(self):
+        """Toggles the Floating Teleprompter Code Card on/off screen."""
+        if hasattr(self, "teleprompter") and self.teleprompter:
+            self.root.after(0, self.teleprompter.toggle_visibility)
 
     def quit_application(self):
         """Cleanly shuts down and exits the background application."""
@@ -1035,10 +1767,27 @@ class DisplayConfigApp:
         )
         self.btn_clear.pack(side="left", padx=4)
 
+        # Teleprompter button on toolbar
+        self.btn_teleprompter = tk.Button(
+            self.toolbar,
+            text="⚡ Teleprompter (F10)",
+            font=("Segoe UI", 9, "bold"),
+            bg="#313244",
+            fg="#89b4fa",
+            activebackground="#45475a",
+            activeforeground="#ffffff",
+            bd=0,
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self.toggle_teleprompter
+        )
+        self.btn_teleprompter.pack(side="left", padx=4)
+
         # Hide to Background button (puts into pure background service mode)
         self.btn_hide_bg = tk.Button(
             self.toolbar,
-            text="🗕 Tray (F10)",
+            text="🗕 Hide (Ctrl+H)",
             font=("Segoe UI", 9, "bold"),
             bg="#313244",
             fg="#a6e3a1",
@@ -1227,6 +1976,8 @@ class DisplayConfigApp:
         self.last_solution_code = ""
         self.last_extracted_text = ""
         self.last_explanation = ""
+        if hasattr(self, "teleprompter") and self.teleprompter:
+            self.teleprompter.clear()
         self.update_status("Cleared — Ready", self.success_color)
 
     def copy_solution_code(self):
@@ -1448,38 +2199,50 @@ class DisplayConfigApp:
         return ""
 
     def get_system_prompt(self) -> str:
-        """Constructs system prompt customized for the selected target language and competitive programming."""
-        lang = LANGUAGE.strip() if LANGUAGE else "Java"
-        doc_context = load_java_doc_context()
-
-        if lang.lower() == "java":
-            lang_rules = (
-                "1. Output valid, complete Java 17+ code with all necessary imports (java.util.*, java.io.*, java.math.*).\n"
-                "2. Read input from standard input using Scanner or BufferedReader as required by the platform.\n"
-                "3. Wrap solution in 'public class Solution' containing 'public static void main(String[] args)' unless a specific class method is requested.\n"
-                "4. Print results to standard output using System.out.println().\n"
-                "5. Do NOT use external third-party libraries; use standard JDK classes only.\n"
-                "6. Ensure optimal time and space complexity to prevent TLE (Time Limit Exceeded)."
-            )
-        else:
-            lang_rules = (
-                f"1. Output valid, clean {lang} code with all necessary standard imports.\n"
-                f"2. Read input from standard input as required by competitive programming platforms.\n"
-                f"3. Ensure optimal time and space complexity to prevent TLE."
-            )
-
+        """Constructs an omniscient technical interview solver prompt covering Theory, Live Coding, MCQs, System Design, and CS Fundamentals across all software engineering topics."""
         return (
-            f"You are an elite competitive programmer and algorithm solver. "
-            f"Your task is to analyze the coding question, identify the exact requirements, constraints, input format, and output format, and write the optimal, passing {lang} solution.\n\n"
-            f"Rules:\n"
-            f"{lang_rules}\n"
-            f"{doc_context}\n"
-            f"Format your response strictly as JSON with the following keys:\n"
-            f"   - 'code': Pure {lang} solution source code without markdown backticks.\n"
-            f"   - 'explanation': Concise bullet points on approach and edge cases.\n"
-            f"   - 'problem_title': Title or summary of the detected problem.\n"
-            f"   - 'confidence': High / Medium / Low.\n"
-            f"   - 'time_complexity': Big-O time and space complexity."
+            "You are a World-Class Principal Software Engineer, Computer Science Authority, and Technical Interview Assessor. "
+            "You possess exhaustive mastery across EVERY domain of software development and computer science: "
+            "Frontend (React, Next.js, Vue, TypeScript/JavaScript, CSS/HTML), Backend (Node.js, Express, Python, Django, FastAPI, Java, Spring, Go, Rust, C++), Databases (SQL, PostgreSQL, MongoDB, Redis, indexing, ACID), System Design & Architecture, DevOps & Cloud (Docker, Kubernetes, AWS), Operating Systems, Networking, Security, and Data Structures & Algorithms.\n\n"
+            "Your objective: Instantly analyze whatever is displayed on screen — whether it is a THEORETICAL / CONCEPTUAL question, a MULTIPLE-CHOICE (MCQ) assessment test, a LIVE CODING challenge, a SYSTEM DESIGN scenario, or a CODE DEBUGGING / REVIEW problem — and output the definitive, 100% accurate, high-scoring answer.\n\n"
+            "--- HANDLING ALL QUESTION FORMATS & TOPICS ---\n"
+            "1. THEORETICAL & CONCEPTUAL QUESTIONS (ANY TOPIC):\n"
+            "   - When asked technical definitions, deep dives, mechanisms, or trade-offs (e.g., 'Explain Node Event Loop', 'SSR vs SSG vs ISR', 'React Fiber / Reconciliation', 'TCP vs UDP', 'SQL vs NoSQL', 'CORS', 'Database Isolation Levels'):\n"
+            "   - 'code': Provide a clean, illustrative code snippet or architecture ASCII diagram demonstrating the concept.\n"
+            "   - 'explanation': Provide razor-sharp, structured speaking points so the candidate can answer out loud with senior-level authority:\n"
+            "     * [Executive Definition]: 1-2 sentence crystal-clear answer.\n"
+            "     * [Under the Hood]: Internal engine mechanics, memory, execution flow, or lifecycle.\n"
+            "     * [Trade-offs & Real-World Best Practices]: When to use, pros/cons, and common pitfalls to avoid.\n"
+            "   - 'category': Set to '💡 Theory: <TopicName>'\n\n"
+            "2. MULTIPLE-CHOICE QUESTIONS (MCQ / ASSESSMENT TESTS / QUIZZES):\n"
+            "   - In online assessment tests (HackerRank, Codility, TestGorilla, HireVue, Mettl, LinkedIn):\n"
+            "   - 'code': State the EXACT CORRECT OPTION prominently at the top:\n"
+            "     >>> CORRECT ANSWER: Option <Letter> — \"<Option Text>\" <<<\n"
+            "   - 'explanation': Clear explanation of why this option is correct and why other options are flawed.\n"
+            "   - 'category': Set to '📝 Multiple Choice (MCQ)'\n\n"
+            "3. LIVE CODING & IMPLEMENTATION (FRONTEND / BACKEND / FULLSTACK / SCRIPTING):\n"
+            "   - React, Next.js, Node.js, TypeScript, Python, Java, C++, Go, SQL, or any language the prompt specifies.\n"
+            "   - 'code': Complete, production-grade, bug-free implementation ready to paste directly (no placeholders, no ellipses, no markdown backticks).\n"
+            "   - 'explanation': Key implementation decisions, edge cases handled, and complexity.\n"
+            "   - 'category': Set to '⚛ React/Next.js', '🟢 Node.js', '🐍 Python', '☕ Java', '🐬 SQL', etc.\n\n"
+            "4. SYSTEM DESIGN & ARCHITECTURE:\n"
+            "   - 'code': Clean API contract / schema / component breakdown.\n"
+            "   - 'explanation': High-level design, database choice, caching (Redis), scalability, and fault tolerance.\n"
+            "   - 'category': Set to '📐 System Design'\n\n"
+            "5. ALGORITHMS & DATA STRUCTURES (LEETCODE / CODEFORCES):\n"
+            "   - 'code': Optimal algorithm in the target language.\n"
+            "   - 'explanation': Intuition, step-by-step logic, and Big-O time & space complexity.\n"
+            "   - 'category': Set to '⚡ Algorithm / DSA'\n\n"
+            "--- STRICT RAW JSON SCHEMA (NO MARKDOWN FENCES) ---\n"
+            "Return ONLY raw JSON with these exact keys:\n"
+            "{\n"
+            "  \"problem_title\": \"Concise title of question or topic (max 32 chars)\",\n"
+            "  \"code\": \"Direct answer / clean code / MCQ choice (ready to copy or read)\",\n"
+            "  \"explanation\": \"Structured speaking points or explanation for the interview\",\n"
+            "  \"category\": \"Category name (e.g. 💡 Theory: Next.js, 📝 MCQ, ⚛ React, 🟢 Node.js, ⚡ DSA)\",\n"
+            "  \"confidence\": \"High\",\n"
+            "  \"time_complexity\": \"Key metric, Big-O, or architectural takeaway tag\"\n"
+            "}"
         )
 
     def solve_with_gemini(self, ocr_text: str, screenshot: "Image.Image", api_key: str, timeout: int = 25) -> dict:
@@ -1505,16 +2268,16 @@ class DisplayConfigApp:
                 }
             })
             parts.append({
-                "text": f"{system_prompt}\n\nPlease read the coding problem shown in this screenshot and provide the optimal {LANGUAGE} solution."
+                "text": f"{system_prompt}\n\nPlease analyze the technical question, theory topic, MCQ quiz, or coding challenge shown in this screenshot and provide the optimal, definitive answer adhering strictly to the JSON schema."
             })
         else:
             parts.append({
                 "text": (
                     f"{system_prompt}\n\n"
-                    f"--- EXTRACTED SCREEN TEXT / PROBLEM STATEMENT ---\n"
+                    f"--- EXTRACTED SCREEN TEXT / QUESTION ---\n"
                     f"{ocr_text}\n"
-                    f"--------------------------------------------------\n"
-                    f"Provide the complete {LANGUAGE} solution adhering strictly to the JSON schema."
+                    f"----------------------------------------\n"
+                    f"Analyze the question (theory, MCQ, coding, or system design) and provide the definitive answer adhering strictly to the JSON schema."
                 )
             })
 
@@ -1601,10 +2364,10 @@ class DisplayConfigApp:
         if p_type == "openai_compat":
             prompt_text = (
                 f"{system_prompt}\n\n"
-                f"--- EXTRACTED SCREEN TEXT / PROBLEM STATEMENT ---\n"
-                f"{ocr_text or 'Solve the coding problem shown on screen.'}\n"
-                f"--------------------------------------------------\n"
-                f"Return JSON with 'code' ({LANGUAGE}), 'explanation', 'problem_title', 'confidence'."
+                f"--- EXTRACTED SCREEN TEXT / QUESTION ---\n"
+                f"{ocr_text or 'Analyze the technical question, theory, MCQ, or coding task shown on screen.'}\n"
+                f"----------------------------------------\n"
+                f"Identify the question format (Theory, MCQ, Coding, or System Design) and return the JSON response."
             )
             headers = {
                 "Authorization": f"Bearer {p_key}",
@@ -1638,10 +2401,10 @@ class DisplayConfigApp:
             # Local Ollama endpoint for air-gapped / restricted networks
             prompt_text = (
                 f"{system_prompt}\n\n"
-                f"--- EXTRACTED SCREEN TEXT / PROBLEM STATEMENT ---\n"
-                f"{ocr_text or 'Solve the coding problem shown on screen.'}\n"
-                f"--------------------------------------------------\n"
-                f"Return ONLY valid JSON with 'code' ({LANGUAGE}), 'explanation', 'problem_title', 'confidence'."
+                f"--- EXTRACTED SCREEN TEXT / QUESTION ---\n"
+                f"{ocr_text or 'Analyze the technical question, theory, MCQ, or coding task shown on screen.'}\n"
+                f"----------------------------------------\n"
+                f"Identify the question format (Theory, MCQ, Coding, or System Design) and return ONLY valid JSON."
             )
             payload = {
                 "model": p_model,
@@ -1807,6 +2570,18 @@ class DisplayConfigApp:
                 self.root.clipboard_append(code)
             except Exception:
                 pass
+
+        # Update and display the sleek Floating Teleprompter Card (100% hidden from screen share via WDA)
+        if hasattr(self, "teleprompter") and self.teleprompter:
+            self.teleprompter.show_solution(solution_data, ocr_text)
+
+        # Show toast alert pill
+        self.show_toast(
+            title=f"✓ Solution Ready ({provider_name} • {elapsed_sec or '0.8'}s)",
+            subtitle="Teleprompter active on screen | Copied to Ctrl+V",
+            status_type="success",
+            duration_ms=3000
+        )
 
         # Subtle stealth feedback: Blink mouse cursor 2 times when answer is ready in clipboard
         threading.Thread(target=blink_mouse_cursor, args=(2,), daemon=True).start()

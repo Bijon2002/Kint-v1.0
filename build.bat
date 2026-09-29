@@ -26,10 +26,10 @@ if %errorlevel% neq 0 (
 REM 3. Compile EXE with PyInstaller
 echo.
 echo [*] Compiling standalone executable with PyInstaller...
-echo     Target: dist\WinDConf.exe
+echo     Target: dist\Kint-V1.0.exe
 echo.
 
-pyinstaller --onefile --noconsole --name WinDConf --icon="display.ico" --add-data "display.ico;." --add-data "display.png;." --clean ^
+pyinstaller --onefile --noconsole --name Kint-V1.0 --icon="display.ico" --add-data "display.ico;." --add-data "display.png;." --clean ^
     --hidden-import "PIL" ^
     --hidden-import "PIL.ImageTk" ^
     --hidden-import "pytesseract" ^
@@ -59,11 +59,11 @@ if %errorlevel% equ 0 (
     )
     echo.
     echo ========================================================
-    echo  [SUCCESS] WinDConf.exe built successfully!
-    echo  Location: dist\WinDConf.exe
+    echo  [SUCCESS] Kint-V1.0.exe built successfully!
+    echo  Location: dist\Kint-V1.0.exe
     echo ========================================================
     echo.
-    echo NOTE: Run WinDConf.exe as Administrator for global
+    echo NOTE: Run Kint-V1.0.exe as Administrator for global
     echo       hotkey support across all windows.
     echo.
 ) else (
